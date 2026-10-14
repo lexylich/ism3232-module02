@@ -1,3 +1,5 @@
+import os
+
 records = [
     {
         "id": 1,
@@ -47,10 +49,10 @@ for r in records:
     if r["status"] == "Pending":
         print(r["name"], r["amount"])
         total += r["amount"]
+        if r["amount"] > LIMIT:
+            flagged.append(r)
         if r["amount"] > HIGH:
             high_value.append(r)
-        elif r["amount"] > LIMIT:
-            flagged.append(r)
 
 summary = (
     f"Pending total: ${total:,.2f}\n"
@@ -59,5 +61,6 @@ summary = (
 )
 print(summary)
 
+os.makedirs("data", exist_ok=True)
 with open("data/week6_summary.txt", "w") as f:
     f.write(summary)
