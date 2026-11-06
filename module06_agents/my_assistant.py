@@ -6,14 +6,15 @@ HANDOFF_WORDS = ["reservation", "reserve", "complaint", "refund", "allergy"]
 
 
 class RestaurantHelper:
-    """A mock restaurant helper. Its replies come from simple rules, not from AI."""
+    """A restaurant helper. Rules handle what must be right. A model handles the rest."""
 
-    # Saves the name, instructions, menu tool, and an empty history on this helper
-    def __init__(self, name, instructions, menu_tool):
-        """Set up one helper with its own name, instructions, tool, and history."""
+    # Saves the name, instructions, menu tool, model, and an empty history on this helper
+    def __init__(self, name, instructions, menu_tool, model):
+        """Set up one helper with its own name, instructions, tool, model, and history."""
         self.name = name
         self.instructions = instructions
         self.menu_tool = menu_tool
+        self.model = model
         self.history = []
 
     # Records the customer's message, gets a reply, records it, and returns it
@@ -24,9 +25,9 @@ class RestaurantHelper:
         self.history.append({"role": "assistant", "content": reply})
         return reply
 
-    # Checks the rules in order: handoff first, then hours, then prices, then hello
+    # Checks the rules in order: handoff first, then hours, then prices, then the model
     def choose_reply(self, user_message):
-        """Choose a reply with keyword rules. This is the mock part."""
+        """Use a rule when one applies. Otherwise ask the model."""
         text = user_message.lower()
         if self.needs_human(text):
             return "I can't help with that here. I'm passing you to the manager."
@@ -34,9 +35,15 @@ class RestaurantHelper:
             return f"We are open {self.menu_tool.get_hours()}."
         if "price" in text or "cost" in text or "how much" in text:
             return self.price_reply(user_message)
-        if "hello" in text:
-            return f"Hello! I'm {self.name}. Ask me about our menu prices or hours."
-        return "I'm not sure how to help with that. I can share prices and hours."
+        return self.model_reply()
+
+    # Asks the model for a reply and gives a safe answer if the model has none
+    def model_reply(self):
+        """Ask the model for a reply. Give a safe answer if the model has none."""
+        reply = self.model.reply(self.instructions, self.history)
+        if reply is None:
+            return "Sorry, I can't answer that right now. Please try again in a moment."
+        return reply
 
     # Returns True if any handoff word appears in the message
     def needs_human(self, text):
