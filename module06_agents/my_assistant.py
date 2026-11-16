@@ -3,17 +3,19 @@
 
 # Words that mean a person must handle the request
 HANDOFF_WORDS = ["reservation", "reserve", "complaint", "refund", "allergy"]
+# The most tool requests the helper will run for one reply
+MAX_TOOL_ROUNDS = 3
 
 
 class RestaurantHelper:
     """A restaurant helper. Rules handle what must be right. A model handles the rest."""
 
-    # Saves the name, instructions, menu tool, model, and an empty history on this helper
-    def __init__(self, name, instructions, menu_tool, model):
-        """Set up one helper with its own name, instructions, tool, model, and history."""
+    # Saves the name, instructions, toolbox, model, and an empty history on this helper
+    def __init__(self, name, instructions, tools, model):
+        """Set up one helper with its own name, instructions, tools, model, and history."""
         self.name = name
         self.instructions = instructions
-        self.menu_tool = menu_tool
+        self.tools = tools
         self.model = model
         self.history = []
 
@@ -25,25 +27,44 @@ class RestaurantHelper:
         self.history.append({"role": "assistant", "content": reply})
         return reply
 
-    # Checks the rules in order: handoff first, then hours, then prices, then the model
+    # Checks the rules in order: handoff first, then hours, then the model
     def choose_reply(self, user_message):
         """Use a rule when one applies. Otherwise ask the model."""
         text = user_message.lower()
         if self.needs_human(text):
             return "I can't help with that here. I'm passing you to the manager."
         if "hours" in text or "open" in text:
-            return f"We are open {self.menu_tool.get_hours()}."
-        if "price" in text or "cost" in text or "how much" in text:
-            return self.price_reply(user_message)
+            return f"We are open {self.tools.menu_tool.get_hours()}."
         return self.model_reply()
 
-    # Asks the model for a reply and gives a safe answer if the model has none
+    # Asks the model what to do, runs any tool it asks for, and asks again, up to the limit
     def model_reply(self):
-        """Ask the model for a reply. Give a safe answer if the model has none."""
-        reply = self.model.reply(self.instructions, self.history)
-        if reply is None:
-            return "Sorry, I can't answer that right now. Please try again in a moment."
-        return reply
+        """Ask the model. Run each tool it asks for, then ask again, up to a limit."""
+        rounds = 0
+        while rounds < MAX_TOOL_ROUNDS:
+            tool_list = self.tools.tool_list()
+            decision = self.model.decide(self.instructions, self.history, tool_list)
+            # None means the model is unavailable, so give a safe answer
+            if decision is None:
+                return "Sorry, I can't answer that right now. Please try again in a moment."
+            # A text decision is the final reply
+            if "text" in decision:
+                return decision["text"]
+            # Otherwise the model asked for a tool, so the toolbox checks and runs it
+            name = decision["tool"]
+            arguments = decision["arguments"]
+            result = self.tools.run(name, arguments, self.history)
+            # The result is saved as a tool entry so the history shows where the answer came from
+            self.history.append(
+                {
+                    "role": "tool",
+                    "tool_name": name,
+                    "arguments": arguments,
+                    "content": result,
+                }
+            )
+            rounds += 1
+        return "Sorry, I couldn't finish that. I'm passing you to the manager."
 
     # Returns True if any handoff word appears in the message
     def needs_human(self, text):
@@ -52,12 +73,3 @@ class RestaurantHelper:
             if word in text:
                 return True
         return False
-
-    # Asks the tool for the item and its price, and asks which item if none is found
-    def price_reply(self, user_message):
-        """Use the menu tool to answer a question about a price."""
-        item = self.menu_tool.find_item(user_message)
-        if item is None:
-            return "Which item? Please name a menu item like burger."
-        price = self.menu_tool.price_for(item)
-        return f"The {item} is ${price}."

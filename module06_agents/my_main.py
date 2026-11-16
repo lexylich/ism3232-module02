@@ -3,29 +3,27 @@
 
 from my_assistant import RestaurantHelper
 from my_tool import MenuLookup
+from my_toolbox import MenuToolbox
 from ollama_model import OllamaModel
+from pickup_queue import PickupQueue
 
 MODEL_NAME = "granite4.1:3b"
 
-INSTRUCTIONS = """You are lexy 2.0, an assistant for a small restaurant.
-Answer in one short sentence.
-The restaurant is on Ocean Drive in South Beach, Miami, one block from the beach.
-Takeout orders are ready about 15 minutes after you order.
-Only state facts that appear in these instructions.
-If you do not know, say you do not know and offer to pass the customer to the manager."""
+INSTRUCTIONS = """You are lexy 2.0, the assistant for a small restaurant.
+Reply in one short sentence.
+If the customer only says hello, greet them and ask how you can help.
+To request a pickup order you need the menu item and the customer's name.
+Use only facts from these instructions or from tool results.
+When you are unsure, say so and offer to connect the customer with the manager."""
 
-MENU = {
-    "burger": 12,
-    "fries": 5,
-    "salad": 9,
-    "milkshake": 6,
-}
-
-HOURS = "11 am to 9 pm every day"
+MENU = {"burger": 12, "fries": 5, "milkshake": 6}
+HOURS = "11 am to 9 pm"
 
 menu_tool = MenuLookup(MENU, HOURS)
+pickup_queue = PickupQueue(menu_tool)
+tools = MenuToolbox(menu_tool, pickup_queue)
 model = OllamaModel(MODEL_NAME)
-helper = RestaurantHelper("lexy 2.0", INSTRUCTIONS, menu_tool, model)
+helper = RestaurantHelper("lexy 2.0", INSTRUCTIONS, tools, model)
 
 print("Type a message, or type quit to stop.")
 user_message = input("You: ")
@@ -34,3 +32,20 @@ while user_message != "quit":
     user_message = input("You: ")
 
 print(f"Messages in this conversation: {len(helper.history)}")
+
+print("Manager review")
+for request in pickup_queue.waiting():
+    number = request["number"]
+    print(f"Request {number}: {request['name']} wants a {request['item']}")
+    answer = input("Approve? yes or no: ")
+    if answer == "yes":
+        print(pickup_queue.approve(number))
+    else:
+        print(pickup_queue.reject(number))
+
+print(f"Pickup orders: {len(menu_tool.orders)}")
+
+# Shows each tool request the model made and what the toolbox answered
+for entry in helper.history:
+    if entry["role"] == "tool":
+        print(entry["tool_name"], entry["arguments"], entry["content"])
